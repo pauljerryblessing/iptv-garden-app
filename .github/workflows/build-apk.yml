@@ -38,24 +38,26 @@ jobs:
       - name: Install Flutter dependencies
         run: flutter pub get
 
-      - name: Verify no v1 embedding plugins
+      - name: Show resolved plugin versions
         run: |
-          flutter pub deps --json | python3 -c "
-          import json, sys
-          data = json.load(sys.stdin)
-          print('Dependency resolution OK - checking for v1 embedding issues...')
-          " || true
+          echo "=== pubspec.lock plugin versions ==="
+          grep -A2 "video_player_android\|connectivity_plus\|shared_preferences_android\|path_provider_android\|package_info_plus" pubspec.lock || true
+          echo "=== .flutter-plugins ==="
+          cat .flutter-plugins 2>/dev/null || echo "not generated yet"
+          echo "=== flutter-plugins-dependencies ==="
+          cat .flutter-plugins-dependencies 2>/dev/null || echo "not generated yet"
 
       - name: Analyze Dart code
         run: flutter analyze --no-fatal-warnings || true
 
-      - name: Build release APK
+      - name: Build release APK verbose
         run: |
           flutter build apk \
             --release \
             --no-shrink \
             --build-name=1.0.0 \
-            --build-number=${{ github.run_number }}
+            --build-number=${{ github.run_number }} \
+            --verbose 2>&1 | tail -60
 
       - name: Rename APK
         run: |

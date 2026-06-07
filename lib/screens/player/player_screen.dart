@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:video_player/video_player.dart';
-import 'package:chewie/chewie.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 import '../../models/channel.dart';
 import '../../models/epg_program.dart';
 import '../../providers/favorites_provider.dart';
@@ -24,8 +24,8 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
-  VideoPlayerController? _videoController;
-  ChewieController? _chewieController;
+  late final Player _player;
+  late final VideoController _controller;
   bool _isInitializing = true;
   bool _hasError = false;
   String _errorMessage = '';
@@ -35,6 +35,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    _player = Player();
+    _controller = VideoController(_player);
     _initPlayer();
     _recordRecent();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -53,33 +55,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
 
     try {
-      _videoController?.dispose();
-      _chewieController?.dispose();
-
-      final uri = Uri.parse(widget.channel.streamUrl);
-      _videoController = VideoPlayerController.networkUrl(uri,
-          httpHeaders: widget.channel.headers ?? {});
-
-      await _videoController!.initialize();
-
-      _chewieController = ChewieController(
-        videoPlayerController: _videoController!,
-        autoPlay: true,
-        looping: false,
-        allowFullScreen: true,
-        allowPlaybackSpeedChanging: false,
-        showControls: true,
-        aspectRatio: _videoController!.value.aspectRatio,
-        materialProgressColors: ChewieProgressColors(
-          playedColor: AppTheme.accent,
-          handleColor: AppTheme.accent,
-          bufferedColor: AppTheme.accent.withOpacity(0.3),
-          backgroundColor: Colors.white.withOpacity(0.2),
+      await _player.open(
+        Media(
+          widget.channel.streamUrl,
+          httpHeaders: widget.channel.headers ?? {},
         ),
-        placeholder: Container(color: AppTheme.bgPrimary),
-        errorBuilder: (context, errorMessage) => _buildErrorWidget(errorMessage),
       );
-
       if (mounted) setState(() => _isInitializing = false);
     } catch (e) {
       if (mounted) {
@@ -100,8 +81,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
-    _videoController?.dispose();
-    _chewieController?.dispose();
+    _player.dispose();
     super.dispose();
   }
 
@@ -115,12 +95,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
-  // ── Portrait: stacked video + info panel ─────────────────────────────────
-
   Widget _buildPortrait() {
     return Column(
       children: [
-        // Video area (16:9)
         AspectRatio(
           aspectRatio: 16 / 9,
           child: Stack(
@@ -135,8 +112,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ],
           ),
         ),
-
-        // Info panel below video
         Expanded(
           child: Container(
             color: AppTheme.bgPrimary,
@@ -157,18 +132,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
-  // ── Landscape: full-screen video + sliding EPG panel ─────────────────────
-
   Widget _buildLandscape() {
     return Stack(
       children: [
-        // Full-screen video
         Positioned.fill(child: _buildVideoArea()),
-
-        // Top bar
         _buildTopBar(),
-
-        // Cast + EPG toggle buttons
         Positioned(
           bottom: 80,
           right: 16,
@@ -189,8 +157,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ],
           ),
         ),
-
-        // Sliding EPG side panel (landscape only)
         if (_showEpgPanel)
           Positioned(
             right: 0,
@@ -209,8 +175,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Widget _buildVideoArea() {
     if (_isInitializing) return _buildLoadingWidget();
     if (_hasError) return _buildErrorWidget(_errorMessage);
-    if (_chewieController != null) return Chewie(controller: _chewieController!);
-    return _buildLoadingWidget();
+    return Video(controller: _controller);
   }
 
   Widget _buildNowPlayingInfo() {
@@ -225,7 +190,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Channel name row
               Row(
                 children: [
                   ChannelLogo(
@@ -272,8 +236,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   ),
                 ],
               ),
-
-              // Now playing EPG
               if (now != null) ...[
                 const SizedBox(height: 16),
                 GestureDetector(
@@ -378,8 +340,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   ),
                 ),
               ],
-
-              // Up next
               if (next != null) ...[
                 const SizedBox(height: 12),
                 Container(
@@ -424,7 +384,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   ),
                 ),
               ],
-
               if (now == null && !epg.isLoading) ...[
                 const SizedBox(height: 12),
                 const Text(
@@ -462,9 +421,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ChannelLogo(
                 logoUrl: widget.channel.logoUrl, size: 32, borderRadius: 4),
             const SizedBox(width: 10),
-            Expanded(
-              child: _buildTopBarEpgInfo(),
-            ),
+            Expanded(child: _buildTopBarEpgInfo()),
             if (_isLandscape)
               Consumer<FavoritesProvider>(
                 builder: (context, favs, _) {
@@ -606,7 +563,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 }
 
-// ─── EPG Side Panel (landscape) ───────────────────────────────────────────────
+// ─── EPG Side Panel ───────────────────────────────────────────────────────────
 
 class _EpgSidePanel extends StatelessWidget {
   final Channel channel;
@@ -656,8 +613,7 @@ class _EpgSidePanel extends StatelessWidget {
           Expanded(
             child: Consumer<EpgProvider>(
               builder: (context, epg, _) {
-                final schedule =
-                    epg.scheduleFor(channel.epgId ?? channel.id);
+                final schedule = epg.scheduleFor(channel.epgId ?? channel.id);
                 final upcoming = schedule?.upcoming ?? [];
 
                 if (epg.isLoading) {
@@ -735,7 +691,7 @@ class _EpgPanelRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _timeStr(program.startTime),
+                    '${program.startTime.hour.toString().padLeft(2, '0')}:${program.startTime.minute.toString().padLeft(2, '0')}',
                     style: TextStyle(
                       color: program.isLive
                           ? AppTheme.accent
@@ -791,10 +747,6 @@ class _EpgPanelRow extends StatelessWidget {
       ),
     );
   }
-
-  String _timeStr(DateTime dt) {
-    return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-  }
 }
 
 // ─── Cast Sheet ───────────────────────────────────────────────────────────────
@@ -807,11 +759,7 @@ class _CastSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final devices = [
-      'Living Room TV',
-      'Bedroom Chromecast',
-      'Kitchen Display',
-    ];
+    final devices = ['Living Room TV', 'Bedroom Chromecast', 'Kitchen Display'];
 
     return Padding(
       padding: const EdgeInsets.all(24),
@@ -852,8 +800,7 @@ class _CastSheet extends StatelessWidget {
               )),
           if (castProvider.isConnected)
             ListTile(
-              leading:
-                  const Icon(Icons.stop_rounded, color: AppTheme.error),
+              leading: const Icon(Icons.stop_rounded, color: AppTheme.error),
               title: const Text('Stop Casting',
                   style: TextStyle(color: AppTheme.error)),
               onTap: () {
