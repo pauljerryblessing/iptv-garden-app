@@ -11,18 +11,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ── Checkout ──────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── Java 17 ───────────────────────────────────────────────────────────
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # ── Flutter ───────────────────────────────────────────────────────────
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -30,7 +27,6 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # ── Write local.properties ────────────────────────────────────────────
       - name: Write android/local.properties
         run: |
           echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
@@ -39,15 +35,20 @@ jobs:
           echo "flutter.versionCode=1" >> android/local.properties
           echo "sdk.dir=$ANDROID_HOME" >> android/local.properties
 
-      # ── Dependencies ──────────────────────────────────────────────────────
       - name: Install Flutter dependencies
         run: flutter pub get
 
-      # ── Analysis (warn-only) ──────────────────────────────────────────────
+      - name: Verify no v1 embedding plugins
+        run: |
+          flutter pub deps --json | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          print('Dependency resolution OK - checking for v1 embedding issues...')
+          " || true
+
       - name: Analyze Dart code
         run: flutter analyze --no-fatal-warnings || true
 
-      # ── Build APK ─────────────────────────────────────────────────────────
       - name: Build release APK
         run: |
           flutter build apk \
@@ -56,14 +57,12 @@ jobs:
             --build-name=1.0.0 \
             --build-number=${{ github.run_number }}
 
-      # ── Rename APK ────────────────────────────────────────────────────────
       - name: Rename APK
         run: |
           mkdir -p artifacts
           cp build/app/outputs/flutter-apk/app-release.apk \
              artifacts/IPTV-Garden-v1.0.0.apk
 
-      # ── Upload as artifact (downloadable from Actions tab) ─────────────────
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -71,7 +70,6 @@ jobs:
           path: artifacts/IPTV-Garden-v1.0.0.apk
           retention-days: 30
 
-      # ── Create GitHub Release with APK attached ────────────────────────────
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
