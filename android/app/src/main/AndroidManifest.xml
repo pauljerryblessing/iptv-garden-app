@@ -52,10 +52,6 @@
             android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
             android:value="com.iptvgarden.app.CastOptionsProvider" />
 
-        <meta-data
-            android:name="io.flutter.embedding.android.SplashScreenDrawable"
-            android:resource="@drawable/launch_background" />
-
     </application>
 
 </manifest>
